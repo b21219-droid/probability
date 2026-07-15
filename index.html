@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스타포스 무기 강화 시뮬레이터 (하락 시스템 도입)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background-color: #0b0d16;
+            color: #e2e8f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 550px;
+            background: #141625;
+            border-radius: 16px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+            border: 1px solid #232741;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 1) 상단 정보 영역 (Status HUD) */
+        .hud {
+            background: #1c1f37;
+            padding: 22px;
+            border-bottom: 2px solid #232741;
+            text-align: center;
+        }
+
+        .title-badge {
+            display: inline-block;
+            background: #2d325a;
+            color: #ffd700;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .sword-name {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: #ffffff;
+            margin-bottom: 12px;
+        }
+
+        .probability-main {
+            font-size: 2.4rem;
+            font-weight: 900;
+            color: #4ade80;
+            transition: color 0.2s ease;
+        }
+
+        .probability-main.boosted {
+            color: #f6e05e;
+        }
+
+        .probability-details {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+        .prob-down { color: #b794f4; }
+        .prob-boom { color: #f87171; }
+
+        /* 2) 중앙 비주얼 영역 (Main Canvas) */
+        .canvas {
+            height: 240px;
+            background: radial-gradient(circle, #1a1d36 0%, #0b0d16 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sword-display {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 3.5rem;
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .tier-wood { background: #5c4033; border: 4px solid #8b5a2b; box-shadow: 0 0 15px rgba(139,90,43,0.4); }
+        .tier-iron { background: #4a5568; border: 4px solid #cbd5e0; box-shadow: 0 0 15px rgba(203,213,224,0.4); }
+        .tier-steel { background: #2b6cb0; border: 4px solid #63b3ed; box-shadow: 0 0 25px rgba(99,179,237,0.6); filter: drop-shadow(0 0 8px #63b3ed); }
+        .tier-diamond { background: #0b7285; border: 4px solid #9decf9; box-shadow: 0 0 35px rgba(157,236,249,0.8); filter: drop-shadow(0 0 12px #9decf9); }
+        .tier-gold { background: #b7791f; border: 4px solid #fef08a; box-shadow: 0 0 45px #fef08a; filter: drop-shadow(0 0 20px #fef08a); animation: pulse 1.5s infinite; }
+
+        .sword-destroyed {
+            background: #1a202c !important;
+            border: 4px dashed #4a5568 !important;
+            box-shadow: none !important;
+            filter: grayscale(100%) opacity(0.2) !important;
+            transform: scale(0.85);
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.06); }
+        }
+
+        /* 2-1) 애니메이션 연출 효과 */
+        .shake {
+            animation: shakeAnim 0.4s ease-in-out;
+            filter: sepia(100%) hue-rotate(-50deg) saturate(600%) !important;
+        }
+        @keyframes shakeAnim {
+            0%, 100% { transform: translate(0, 0); }
+            20%, 60% { transform: translate(-10px, 3px); }
+            40%, 80% { transform: translate(10px, -3px); }
+        }
+
+        .drop-effect {
+            animation: dropAnim 0.5s ease-in-out;
+            filter: hue-rotate(90deg) saturate(150%) !important; /* 보라색 하락 톤 */
+        }
+        @keyframes dropAnim {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(30px) scale(0.9); }
+        }
+
+        .success-flash::after {
+            content: '';
+            position: absolute;
+            top:0; left:0; width:100%; height:100%;
+            background: rgba(255, 235, 150, 0.85);
+            animation: flashAnim 0.5s ease-out forwards;
+            pointer-events: none;
+            z-index: 10;
+        }
+        @keyframes flashAnim {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        .particle {
+            position: absolute;
+            font-size: 1rem;
+            pointer-events: none;
+            opacity: 0;
+        }
+        .explode {
+            animation: explodeAnim 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+        }
+        @keyframes explodeAnim {
+            0% { transform: translate(0,0) scale(0.4); opacity: 1; }
+            100% { transform: translate(var(--x), var(--y)) scale(1.2); opacity: 0; }
+        }
+
+        /* 3) 하단 제어 및 가루 시스템 영역 */
+        .controls {
+            padding: 20px;
+            background: #1a1d32;
+        }
+
+        .dust-panel {
+            background: #0f111e;
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 16px;
+            border: 1px solid #232741;
+        }
+
+        .dust-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+
+        .dust-count {
+            color: #f6e05e;
+            font-weight: bold;
+        }
+
+        .dust-slider-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .dust-slider {
+            flex: 1;
+            accent-color: #f6e05e;
+            cursor: pointer;
+        }
+
+        .dust-slider-value {
+            font-weight: bold;
+            color: #f6e05e;
+            min-width: 50px;
+            text-align: right;
+        }
+
+        .stats-panel {
+            font-size: 0.85rem;
+            color: #a0aec0;
+            margin-bottom: 16px;
+            text-align: center;
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        button {
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-enhance {
+            flex: 2;
+            background: linear-gradient(135deg, #2f855a 0%, #22543d 100%);
+            color: white;
+            box-shadow: 0 4px 14px rgba(47,133,90,0.4);
+        }
+        .btn-enhance:hover:not(:disabled) {
+            transform: translateY(-2px);
+            filter: brightness(1.2);
+        }
+
+        .btn-reset {
+            flex: 1;
+            background: #4a5568;
+            color: white;
+        }
+        .btn-reset:hover {
+            filter: brightness(1.2);
+        }
+
+        button:disabled {
+            background: #232741 !important;
+            color: #4a5568 !important;
+            cursor: not-allowed;
+            box-shadow: none !important;
+            transform: none !important;
+        }
+
+        /* 4) 하단 로그창 영역 */
+        .log-panel {
+            padding: 16px;
+            background: #090a10;
+            height: 150px;
+            overflow-y: auto;
+            border-top: 1px solid #232741;
+        }
+
+        .log-item {
+            font-size: 0.85rem;
+            margin-bottom: 6px;
+            line-height: 1.5;
+        }
+        .log-success { color: #4ade80; font-weight: 600; }
+        .log-down { color: #b794f4; font-weight: 600; } /* 하락 보라색 로그 */
+        .log-fail { color: #f87171; font-weight: 600; }
+        .log-system { color: #718096; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .modal-content {
+            background: #141625;
+            border: 2px solid #b7791f;
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+            max-width: 440px;
+        }
+        .modal-title {
+            font-size: 1.8rem;
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-weight: 900;
+        }
+        .btn-close-modal {
+            background: #b7791f;
+            color: white;
+            padding: 10px 25px;
+            font-size: 1rem;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- 1) 상단 HUD -->
+    <div class="hud">
+        <div id="sword-prefix" class="title-badge">초심자의</div>
+        <div id="sword-title" class="sword-name">[Lv. 1] 무기 명칭</div>
+        <div id="success-rate-display" class="probability-main">100.00%</div>
+        <div class="probability-details">
+            <span id="down-rate-display" class="prob-down">하락 확률: 0.00%</span>
+            <span id="boom-rate-display" class="prob-boom">박살 확률: 0.00%</span>
+        </div>
+    </div>
+
+    <!-- 2) 중앙 비주얼 캔버스 -->
+    <div class="canvas" id="main-canvas">
+        <div class="sword-display tier-wood" id="sword-icon">⚔️</div>
+    </div>
+
+    <!-- 3) 하단 제어 및 가루 보정 -->
+    <div class="controls">
+        <div class="dust-panel">
+            <div class="dust-info">
+                <span>✨ 보유 무기 가루: <span class="dust-count" id="dust-wallet">0</span> 개</span>
+                <span style="font-size:0.75rem; color:#718096;">(하락시 Lv×1개 / 박살시 Lv×5개 수급)</span>
+            </div>
+            <div class="dust-slider-container">
+                <input type="range" id="dust-slider" class="dust-slider" min="0" max="0" value="0">
+                <span id="dust-slider-value" class="dust-slider-value">0개</span>
+            </div>
+        </div>
+
+        <div class="stats-panel" id="cumulative-stats">
+            초기 시작 | 누적 도달 확률: 100.00%
+        </div>
+
+        <div class="btn-group">
+            <button class="btn-reset" onclick="resetGame()">초기화</button>
+            <button class="btn-enhance" id="enhance-btn" onclick="attemptEnhance()">강화 시도</button>
+        </div>
+    </div>
+
+    <!-- 4) 하단 로그창 -->
+    <div class="log-panel" id="log-window">
+        <div class="log-item log-system">[시스템] 안전 구간 도입! Lv.10, 20, 30, 40 층에서는 실패해도 레벨이 유지됩니다.</div>
+    </div>
+</div>
+
+<!-- 축하 모달 -->
+<div class="modal" id="celebration-modal">
+    <div class="modal-content">
+        <div class="modal-title">👑 신화적 초월자 달성 👑</div>
+        <div class="modal-text" id="modal-desc">축하합니다!</div>
+        <button class="btn-close-modal" onclick="closeModal()">확인</button>
+    </div>
+</div>
+
+<script>
+    let currentLevel = 1;
+    let startLevel = 1;
+    let isDestroyed = false;
+    let dustWallet = 0;
+    let cumulativeProbability = 1.0;
+    
+    const tiers = [
+        { maxLv: 10, name: "나무 무장검", className: "tier-wood" },
+        { maxLv: 20, name: "정련된 철검", className: "tier-iron" },
+        { maxLv: 35, name: "명장의 강철검", className: "tier-steel" },
+        { maxLv: 45, name: "눈부신 다이아몬드검", className: "tier-diamond" },
+        { maxLv: 50, name: "신화 속 황실황금검", className: "tier-gold" }
+    ];
+
+    const prefixes = ["초심자의", "낡은", "무딘", "단단한", "용맹한", "빛나는 기사의", "예리한", "영웅의", "전설적인", "필멸자의", "초월자의"];
+
+    function getBaseSuccessRate(lv) {
+        if (lv >= 1 && lv <= 20) return 100 - (lv - 1) * 1; 
+        if (lv >= 21 && lv <= 35) return 80 - (lv - 21) * 2; 
+        if (lv >= 36 && lv <= 48) return 52 * Math.exp(-0.4468 * (lv - 35));
+        if (lv === 49) return 0.00123; 
+        return 0;
+    }
+
+    // 안전구간 여부 판별 (10, 20, 30, 40레벨은 하락 방지)
+    function isSafetyLevel(lv) {
+        return lv === 10 || lv === 20 || lv === 30 || lv === 40;
+    }
+
+    function getPrefix(lv) {
+        if (lv <= 5) return prefixes[0]; if (lv <= 10) return prefixes[1]; if (lv <= 15) return prefixes[3];
+        if (lv <= 20) return prefixes[4]; if (lv <= 30) return prefixes[5]; if (lv <= 35) return prefixes[6];
+        if (lv <= 40) return prefixes[7]; if (lv <= 45) return prefixes[8]; if (lv <= 49) return prefixes[9];
+        return prefixes[10];
+    }
+
+    function getTierInfo(lv) {
+        for (let tier of tiers) { if (lv <= tier.maxLv) return tier; }
+        return tiers[tiers.length - 1];
+    }
+
+    function updateUI() {
+        const swordIcon = document.getElementById("sword-icon");
+        const enhanceBtn = document.getElementById("enhance-btn");
+        const slider = document.getElementById("dust-slider");
+        const rateDisplay = document.getElementById("success-rate-display");
+        const downDisplay = document.getElementById("down-rate-display");
+        const boomDisplay = document.getElementById("boom-rate-display");
+
+        if (isDestroyed) {
+            document.getElementById("sword-title").innerText = "[박살남] 형체를 잃은 무기";
+            document.getElementById("sword-prefix").innerText = "처참한";
+            rateDisplay.innerText = "0.00%";
+            rateDisplay.className = "probability-main";
+            downDisplay.innerText = "하락 확률: 0.00%";
+            boomDisplay.innerText = "박살 확률: 0.00%";
+            swordIcon.className = "sword-display sword-destroyed";
+            swordIcon.innerText = "💨";
+            enhanceBtn.disabled = true;
+            slider.max = 0;
+            slider.value = 0;
+        } else {
+            const tier = getTierInfo(currentLevel);
+            document.getElementById("sword-title").innerText = `[Lv. ${currentLevel}] ${tier.name}`;
+            document.getElementById("sword-prefix").innerText = getPrefix(currentLevel);
+            swordIcon.className = `sword-display ${tier.className}`;
+            swordIcon.innerText = currentLevel >= 45 ? "👑" : "⚔️";
+
+            if (currentLevel >= 50) {
+                rateDisplay.innerText = "MAX";
+                rateDisplay.className = "probability-main";
+                downDisplay.innerText = "하락 확률: 0.00%";
+                boomDisplay.innerText = "박살 확률: 0.00%";
+                enhanceBtn.disabled = true;
+                slider.max = 0;
+            } else {
+                const baseRate = getBaseSuccessRate(currentLevel);
+                const allocatedDust = parseInt(slider.value);
+                const bonusRate = allocatedDust * 0.01;
+                
+                const maxAllowedRate = Math.min(baseRate * 2, 95);
+                let finalRate = Math.min(baseRate + bonusRate, maxAllowedRate);
+                
+                const precision = currentLevel === 49 ? 5 : 2;
+                
+                if (bonusRate > 0) {
+                    rateDisplay.innerText = `${finalRate.toFixed(precision)}% (+${bonusRate.toFixed(2)}%p)`;
+                    rateDisplay.className = "probability-main boosted";
+                } else {
+                    rateDisplay.innerText = `${finalRate.toFixed(precision)}%`;
+                    rateDisplay.className = "probability-main";
+                }
+                
+                // 실패 확률 분기 계산 (하락 70%, 박살 30%)
+                const failRate = 100 - finalRate;
+                let downRate = failRate * 0.7;
+                let boomRate = failRate * 0.3;
+
+                // 안전구간일 시 하락 확률은 0%가 되고 문구 변경
+                if (isSafetyLevel(currentLevel)) {
+                    downRate = 0;
+                    downDisplay.innerText = "하락 방지 (유지)";
+                    downDisplay.style.color = "#4ade80";
+                } else {
+                    downDisplay.innerText = `하락 확률: ${downRate.toFixed(precision)}%`;
+                    downDisplay.style.color = "#b794f4";
+                }
+
+                boomDisplay.innerText = `박살 확률: ${boomRate.toFixed(precision)}%`;
+                enhanceBtn.disabled = false;
+
+                const neededDustForMax = Math.ceil((maxAllowedRate - baseRate) / 0.01);
+                slider.max = Math.min(dustWallet, Math.max(0, neededDustForMax));
+            }
+        }
+
+        document.getElementById("dust-wallet").innerText = dustWallet;
+        document.getElementById("dust-slider-value").innerText = `${slider.value}개`;
+
+        let pStr = (cumulativeProbability * 100);
+        document.getElementById("cumulative-stats").innerText = `초기 Lv.${startLevel} 시작 | 누적 도달 확률: ${pStr < 1e-4 ? pStr.toExponential(5) : pStr.toFixed(5)}%`;
+    }
+
+    function attemptEnhance() {
+        if (isDestroyed || currentLevel >= 50) return;
+
+        const canvas = document.getElementById("main-canvas");
+        const slider = document.getElementById("dust-slider");
+        const icon = document.getElementById("sword-icon");
+        const usedDust = parseInt(slider.value);
+        
+        const baseRate = getBaseSuccessRate(currentLevel);
+        const maxAllowedRate = Math.min(baseRate * 2, 95);
+        let finalRate = Math.min(baseRate + (usedDust * 0.01), maxAllowedRate);
+
+        dustWallet -= usedDust;
+        const roll = Math.random() * 100;
+        
+        if (roll <= finalRate) {
+            // 1. 성공
+            const oldLevel = currentLevel;
+            currentLevel++;
+            cumulativeProbability *= (finalRate / 100);
+            
+            logMessage(`[Lv.${oldLevel} -> Lv.${currentLevel}] 강화 성공! (사용 가루: ${usedDust}개)`, "log-success");
+            
+            canvas.classList.add("success-flash");
+            setTimeout(() => canvas.classList.remove("success-flash"), 500);
+
+            if (currentLevel === 50) triggerCelebration();
+        } else {
+            // 실패 판정 내 분기 (하락 70% vs 박살 30%)
+            const failRoll = Math.random() * 100;
+
+            if (failRoll <= 70) {
+                // 2. 하락 분기
+                const oldLevel = currentLevel;
+                let earnedDust = currentLevel * 1;
+                dustWallet += earnedDust;
+
+                if (isSafetyLevel(currentLevel)) {
+                    logMessage(`[Lv.${currentLevel}] 강화 실패! 안전 구간이므로 레벨이 유지됩니다. (+위로 가루 ${earnedDust}개)`, "log-system");
+                } else {
+                    currentLevel--;
+                    logMessage(`[Lv.${oldLevel} -> Lv.${currentLevel}] 강화 실패로 레벨 하락... (+위로 가루 ${earnedDust}개)`, "log-down");
+                }
+                
+                // 하락 모션 필터 적용
+                icon.classList.add("drop-effect");
+                setTimeout(() => icon.classList.remove("drop-effect"), 500);
+            } else {
+                // 3. 박살 분기
+                isDestroyed = true;
+                const earnedDust = currentLevel * 5;
+                dustWallet += earnedDust;
+                
+                logMessage(`[Lv.${currentLevel}] 강화 실패! 무참히 박살나 가루가 되었습니다! (+가루 ${earnedDust}개 수급)`, "log-fail");
+                
+                icon.classList.add("shake");
+                createExplosionParticles(canvas);
+                setTimeout(() => icon.classList.remove("shake"), 400);
+            }
+        }
+
+        slider.value = 0;
+        updateUI();
+    }
+
+    function createExplosionParticles(parent) {
+        for (let i = 0; i < 25; i++) {
+            const p = document.createElement("div");
+            p.className = "particle explode";
+            p.innerText = "✨";
+            p.style.setProperty('--x', `${(Math.random() - 0.5) * 250}px`);
+            p.style.setProperty('--y', `${(Math.random() - 0.5) * 250}px`);
+            p.style.left = '50%'; p.style.top = '50%';
+            p.style.color = '#f87171';
+            parent.appendChild(p);
+            setTimeout(() => p.remove(), 800);
+        }
+    }
+
+    function resetGame() {
+        currentLevel = Math.floor(Math.random() * 15) + 1;
+        startLevel = currentLevel;
+        isDestroyed = false;
+        cumulativeProbability = 1.0;
+        document.getElementById("dust-slider").value = 0;
+        logMessage(`[시스템] 새로운 무기 보급 완료 [Lv.${startLevel}]`, "log-system");
+        updateUI();
+    }
+
+    function logMessage(msg, className) {
+        const win = document.getElementById("log-window");
+        const item = document.createElement("div");
+        item.className = `log-item ${className}`;
+        item.innerText = msg;
+        win.appendChild(item);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    function triggerCelebration() {
+        let pStr = (cumulativeProbability * 100);
+        document.getElementById("modal-desc").innerHTML = `초기 Lv.${startLevel}에서 수많은 하락과 위기를 이겨내고<br><b style="color:#ffd700; font-size:1.4rem;">${pStr < 1e-4 ? pStr.toExponential(6) : pStr.toFixed(6)}%</b> 의 누적 확률을 뚫어냈습니다!`;
+        document.getElementById("celebration-modal").style.display = "flex";
+    }
+
+    function closeModal() { document.getElementById("celebration-modal").style.display = "none"; }
+    document.getElementById("dust-slider").addEventListener("input", updateUI);
+    
+    resetGame();
+</script>
+</body>
+</html>
